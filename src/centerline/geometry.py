@@ -10,8 +10,44 @@ import time
 from tqdm import tqdm
 from multiprocess import Pool
 import multiprocessing
+from numba import jit
 
 from . import exceptions
+
+
+import warnings
+warnings.filterwarnings("ignore")
+
+
+@jit(nopython=True, cache=True)
+def _ridge_is_finite(ridge):
+    return -1 not in ridge
+
+
+@jit(nopython=True, cache=True)
+def _create_point_with_restored_coordinates(x, y, min_x, min_y):
+    return (x + min_x, y + min_y)
+
+
+@jit(cache=True)
+def _process_ridge(data):
+    ridge = data[0]
+    vertices = data[1]
+    input_geometry = data[2]
+    min_x = data[3][0]
+    min_y = data[3][1]
+
+    if _ridge_is_finite(ridge):
+        starting_point = _create_point_with_restored_coordinates(
+            x=vertices[ridge[0]][0], y=vertices[ridge[0]][1], min_x=min_x, min_y=min_y)
+        ending_point = _create_point_with_restored_coordinates(
+            x=vertices[ridge[1]][0], y=vertices[ridge[1]][1], min_x=min_x, min_y=min_y)
+        linestring = LineString((starting_point, ending_point))
+
+        if linestring.within(input_geometry) and len(linestring.coords[0]) > 1:
+            return linestring
+        else:
+            return None
 
 
 class Centerline(MultiLineString):
@@ -53,6 +89,7 @@ class Centerline(MultiLineString):
             super(Centerline, self).__init__(
                 lines=self._construct_centerline_multiprocess())
 
+    @jit(cache=True)
     def input_geometry_is_valid(self):
         """Input geometry is of a :py:class:`shapely.geometry.Polygon`
         or a :py:class:`shapely.geometry.MultiPolygon`.
@@ -67,11 +104,13 @@ class Centerline(MultiLineString):
         else:
             return False
 
+    @jit(cache=True)
     def _get_reduced_coordinates(self):
         min_x = int(min(self._input_geometry.envelope.exterior.xy[0]))
         min_y = int(min(self._input_geometry.envelope.exterior.xy[1]))
         return min_x, min_y
 
+    @jit(cache=True)
     def assign_attributes_to_instance(self, attributes):
         """Assign the ``attributes`` to the :py:class:`Centerline` object.
 
@@ -81,38 +120,14 @@ class Centerline(MultiLineString):
         for key in attributes:
             setattr(self, key, attributes.get(key))
 
+    @jit(cache=True)
     def _construct_centerline_multiprocess(self):
-        def _process_ridge(data):
-            def _ridge_is_finite(ridge):
-                return -1 not in ridge
-
-            def _create_point_with_restored_coordinates(x, y, min_x, min_y):
-                return (x + min_x, y + min_y)
-
-            ridge = data[0]
-            vertices = data[1]
-            input_geometry = data[2]
-            min_x = data[3][0]
-            min_y = data[3][1]
-
-            if _ridge_is_finite(ridge):
-                starting_point = _create_point_with_restored_coordinates(
-                    x=vertices[ridge[0]][0], y=vertices[ridge[0]][1], min_x=min_x, min_y=min_y)
-                ending_point = _create_point_with_restored_coordinates(
-                    x=vertices[ridge[1]][0], y=vertices[ridge[1]][1], min_x=min_x, min_y=min_y)
-                linestring = LineString((starting_point, ending_point))
-
-                if linestring.within(input_geometry) and len(linestring.coords[0]) > 1:
-                    return linestring
-                else:
-                    return None
-
         p = Pool(multiprocessing.cpu_count())
 
         vertices, ridges = self._get_voronoi_vertices_and_ridges()
-        num_ridges = len(ridges)
-        num_vertices = len(vertices)
-        print(f"ridges={num_ridges} vertices={num_vertices}")
+#         num_ridges = len(ridges)
+#         num_vertices = len(vertices)
+#         print(f"ridges={num_ridges} vertices={num_vertices}")
         linestrings = []
         shared_data = []
 
@@ -135,6 +150,7 @@ class Centerline(MultiLineString):
 
         return unary_union(linestrings)
 
+    @jit(cache=True)
     def _construct_centerline(self):
         vertices, ridges = self._get_voronoi_vertices_and_ridges()
         num_ridges = len(ridges)
@@ -160,6 +176,7 @@ class Centerline(MultiLineString):
 
         return unary_union(linestrings)
 
+    @jit(cache=True)
     def _get_voronoi_vertices_and_ridges(self):
         borders = self._get_densified_borders()
 
@@ -175,12 +192,14 @@ class Centerline(MultiLineString):
     def _create_point_with_restored_coordinates(self, x, y):
         return (x + self._min_x, y + self._min_y)
 
+    @jit(cache=True)
     def _linestring_is_within_input_geometry(self, linestring):
         return (
             linestring.within(self._input_geometry)
             and len(linestring.coords[0]) > 1
         )
 
+    @jit(cache=True)
     def _get_densified_borders(self):
         polygons = self._extract_polygons_from_input_geometry()
         points = []
@@ -192,15 +211,18 @@ class Centerline(MultiLineString):
 
         return array(points)
 
+    # @jit(forceobj=True)
     def _extract_polygons_from_input_geometry(self):
         if isinstance(self._input_geometry, MultiPolygon):
             return (polygon for polygon in self._input_geometry)
         else:
             return (self._input_geometry,)
 
+    @jit(cache=True)
     def _polygon_has_interior_rings(self, polygon):
         return len(polygon.interiors) > 0
 
+    @jit(cache=True)
     def _get_interpolated_boundary(self, boundary):
         line = LineString(boundary)
 
@@ -213,16 +235,19 @@ class Centerline(MultiLineString):
 
         return [first_point] + intermediate_points + [last_point]
 
+    @jit(cache=True)
     def _get_coordinates_of_first_point(self, linestring):
         return self._create_point_with_reduced_coordinates(
             x=linestring.xy[0][0], y=linestring.xy[1][0]
         )
 
+    @jit(cache=True)
     def _get_coordinates_of_last_point(self, linestring):
         return self._create_point_with_reduced_coordinates(
             x=linestring.xy[0][-1], y=linestring.xy[1][-1]
         )
 
+    @jit(cache=True)
     def _get_coordinates_of_interpolated_points(self, linestring):
         intermediate_points = []
         interpolation_distance = self._interpolation_distance
@@ -237,5 +262,6 @@ class Centerline(MultiLineString):
 
         return intermediate_points
 
+    @jit(cache=True)
     def _create_point_with_reduced_coordinates(self, x, y):
         return (x - self._min_x, y - self._min_y)
