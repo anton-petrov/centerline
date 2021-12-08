@@ -141,7 +141,7 @@ class Centerline(MultiLineString):
 
         # result = p.map(_process_ridge, shared_data)
 
-        result = list(tqdm.tqdm(p.imap(_process_ridge, shared_data)))
+        result = list(tqdm(p.imap(_process_ridge, shared_data)))
 
         for linestring in result:
             if linestring:
