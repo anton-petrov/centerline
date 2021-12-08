@@ -125,9 +125,9 @@ class Centerline(MultiLineString):
         p = Pool(multiprocessing.cpu_count())
 
         vertices, ridges = self._get_voronoi_vertices_and_ridges()
-#         num_ridges = len(ridges)
-#         num_vertices = len(vertices)
-#         print(f"ridges={num_ridges} vertices={num_vertices}")
+        num_ridges = len(ridges)
+        num_vertices = len(vertices)
+        print(f"ridges={num_ridges} vertices={num_vertices}")
         linestrings = []
         shared_data = []
 
@@ -139,7 +139,9 @@ class Centerline(MultiLineString):
                 )
             )
 
-        result = p.map(_process_ridge, shared_data)
+        # result = p.map(_process_ridge, shared_data)
+
+        result = list(tqdm.tqdm(p.imap(_process_ridge, shared_data)))
 
         for linestring in result:
             if linestring:
