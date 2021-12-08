@@ -1,7 +1,7 @@
 Centerline which supports multiprocessing and numba. 
 ==========
 
-This fork contains improved centerline with _multiprocessing_ and _numba_ support, and fixes pickle loading error.
+This fork contains improved Centerline with **multiprocessing** and **numba** support, and fixes pickle loading error.
 
 .. image:: https://travis-ci.org/fitodic/centerline.svg?branch=master
     :target: https://travis-ci.org/fitodic/centerline
