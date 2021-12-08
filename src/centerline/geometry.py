@@ -6,6 +6,10 @@ from numpy import array
 from scipy.spatial import Voronoi
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
 from shapely.ops import unary_union
+import time
+from tqdm import tqdm
+from multiprocess import Pool
+import multiprocessing
 
 from . import exceptions
 
@@ -29,8 +33,10 @@ class Centerline(MultiLineString):
     """
 
     def __init__(
-        self, input_geometry, interpolation_distance=0.5, **attributes
+        self, input_geometry=None, interpolation_distance=0.5, **attributes
     ):
+        if input_geometry == None:
+            return
         self._input_geometry = input_geometry
         self._interpolation_distance = abs(interpolation_distance)
 
@@ -40,7 +46,12 @@ class Centerline(MultiLineString):
         self._min_x, self._min_y = self._get_reduced_coordinates()
         self.assign_attributes_to_instance(attributes)
 
-        super(Centerline, self).__init__(lines=self._construct_centerline())
+        if not self.multiprocess:
+            super(Centerline, self).__init__(
+                lines=self._construct_centerline())
+        else:
+            super(Centerline, self).__init__(
+                lines=self._construct_centerline_multiprocess())
 
     def input_geometry_is_valid(self):
         """Input geometry is of a :py:class:`shapely.geometry.Polygon`
@@ -70,10 +81,68 @@ class Centerline(MultiLineString):
         for key in attributes:
             setattr(self, key, attributes.get(key))
 
+    def _construct_centerline_multiprocess(self):
+        def _process_ridge(data):
+            def _ridge_is_finite(ridge):
+                return -1 not in ridge
+
+            def _create_point_with_restored_coordinates(x, y, min_x, min_y):
+                return (x + min_x, y + min_y)
+
+            ridge = data[0]
+            vertices = data[1]
+            input_geometry = data[2]
+            min_x = data[3][0]
+            min_y = data[3][1]
+
+            if _ridge_is_finite(ridge):
+                starting_point = _create_point_with_restored_coordinates(
+                    x=vertices[ridge[0]][0], y=vertices[ridge[0]][1], min_x=min_x, min_y=min_y)
+                ending_point = _create_point_with_restored_coordinates(
+                    x=vertices[ridge[1]][0], y=vertices[ridge[1]][1], min_x=min_x, min_y=min_y)
+                linestring = LineString((starting_point, ending_point))
+
+                if linestring.within(input_geometry) and len(linestring.coords[0]) > 1:
+                    return linestring
+                else:
+                    return None
+
+        p = Pool(multiprocessing.cpu_count())
+
+        vertices, ridges = self._get_voronoi_vertices_and_ridges()
+        num_ridges = len(ridges)
+        num_vertices = len(vertices)
+        print(f"ridges={num_ridges} vertices={num_vertices}")
+        linestrings = []
+        shared_data = []
+
+        for ridge in ridges:
+            shared_data.append(
+                (
+                    ridge, vertices, self._input_geometry, (
+                        self._min_x, self._min_y)
+                )
+            )
+
+        result = p.map(_process_ridge, shared_data)
+
+        for linestring in result:
+            if linestring:
+                linestrings.append(linestring)
+
+        if len(linestrings) < 2:
+            raise exceptions.TooFewRidgesError
+
+        return unary_union(linestrings)
+
     def _construct_centerline(self):
         vertices, ridges = self._get_voronoi_vertices_and_ridges()
+        num_ridges = len(ridges)
+        num_vertices = len(vertices)
+        counter = 0
+        print(f"ridges={num_ridges} vertices={num_vertices}")
         linestrings = []
-        for ridge in ridges:
+        for ridge in tqdm(ridges):
             if self._ridge_is_finite(ridge):
                 starting_point = self._create_point_with_restored_coordinates(
                     x=vertices[ridge[0]][0], y=vertices[ridge[0]][1]
