@@ -1,5 +1,7 @@
-Centerline
+Centerline which supports the multiprocessing! 
 ==========
+
+This fork improves the centerline library with multiprocess support and fixes pickle loading error.
 
 .. image:: https://travis-ci.org/fitodic/centerline.svg?branch=master
     :target: https://travis-ci.org/fitodic/centerline
@@ -55,7 +57,7 @@ Features
     >>> from centerline.geometry import Centerline
 
     >>> polygon = Polygon([[0, 0], [0, 4], [4, 4], [4, 0]])
-    >>> attributes = {"id": 1, "name": "polygon", "valid": True}
+    >>> attributes = {"id": 1, "name": "polygon", "valid": True, "interpolation_distance": 0.0001, "multiprocess": True}
 
     >>> centerline = Centerline(polygon, **attributes)
     >>> centerline.id == 1
