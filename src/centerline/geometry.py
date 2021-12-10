@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import unicode_literals
+import os
+import pickle
 
 from numpy import array
 from scipy.spatial import Voronoi
@@ -69,11 +71,23 @@ class Centerline(MultiLineString):
     """
 
     def __init__(
-        self, input_geometry=None, interpolation_distance=0.5, **attributes
+        self, input_geometry=None, vertices_and_ridges=None, interpolation_distance=0.5, **attributes
     ):
         if input_geometry == None:
             return
-        self._input_geometry = input_geometry
+
+        if isinstance(input_geometry, str):
+            with open(input_geometry + '.pkl', 'rb') as f:
+                self._input_geometry = pickle.load(f)
+        else:
+            self._input_geometry = input_geometry
+
+        if isinstance(vertices_and_ridges, str):
+            with open(vertices_and_ridges + '.pkl', 'rb') as f:
+                self.vertices_and_ridges = pickle.load(f)
+        else:
+            self._vertices_and_ridges = vertices_and_ridges
+
         self._interpolation_distance = abs(interpolation_distance)
 
         if not self.input_geometry_is_valid():
@@ -81,6 +95,9 @@ class Centerline(MultiLineString):
 
         self._min_x, self._min_y = self._get_reduced_coordinates()
         self.assign_attributes_to_instance(attributes)
+
+        if not self.run:
+            return
 
         if not self.multiprocess:
             super(Centerline, self).__init__(
@@ -150,17 +167,27 @@ class Centerline(MultiLineString):
         if len(linestrings) < 2:
             raise exceptions.TooFewRidgesError
 
-        return unary_union(linestrings)
+        result = unary_union(linestrings)
+
+        if self.save_to_file:
+            self._save_to_file(result, self.save_to_file)
+
+        return result
 
     @jit(cache=True)
     def _construct_centerline(self):
-        vertices, ridges = self._get_voronoi_vertices_and_ridges()
+        if not self._vertices_and_ridges:
+            vertices, ridges = self._get_voronoi_vertices_and_ridges()
+        else:
+            vertices, ridges = self._vertices_and_ridges
+
         num_ridges = len(ridges)
         num_vertices = len(vertices)
-        counter = 0
         print(f"ridges={num_ridges} vertices={num_vertices}")
         linestrings = []
-        for ridge in tqdm(ridges):
+        #  for ridge in tqdm(ridges, desc=f"Process: {os.getpid()}", colour="#00ff00"):
+        for ridge in ridges:
+            # print(f"_construct_centerline [{os.getpid()}]")
             if self._ridge_is_finite(ridge):
                 starting_point = self._create_point_with_restored_coordinates(
                     x=vertices[ridge[0]][0], y=vertices[ridge[0]][1]
@@ -176,7 +203,25 @@ class Centerline(MultiLineString):
         if len(linestrings) < 2:
             raise exceptions.TooFewRidgesError
 
-        return unary_union(linestrings)
+        result = unary_union(linestrings)
+
+        if self.save_to_file:
+            self._save_to_file(result, self.save_to_file)
+
+        # print("_construct_centerline finished!")
+
+        return result
+
+    def _dump_voronoi_vertices_and_ridges(self, filename):
+        result = self._get_voronoi_vertices_and_ridges()
+        with open(filename + '_vr.pkl', 'wb') as f:
+            pickle.dump(result, f)
+        return result
+
+    @jit(cache=True)
+    def _save_to_file(self, data, filename):
+        with open(filename + '_centerline.pkl', 'wb') as f:
+            pickle.dump(data, f)
 
     @jit(cache=True)
     def _get_voronoi_vertices_and_ridges(self):
